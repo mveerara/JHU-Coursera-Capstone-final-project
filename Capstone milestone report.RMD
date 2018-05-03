@@ -1,0 +1,397 @@
+---
+title: "Capstone Milestone Report"
+author: "Mukund"
+date: "22 March 2018"
+output: html_document
+self_contained: no
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE,message = FALSE,warning = FALSE)
+
+```
+
+## Capstone Milestone Report
+
+Purpose of this Milestone Report is to to display that we have gotten used to working with the data and that we are on track to create your prediction algorithm. This report explains  exploratory analysis and goals for the eventual app and algorithm.This document explains major features of the data identified and briefly summarizes plans for creating the prediction algorithm. 
+1. Data downloading data and loading
+2. Summary statistics about the data sets
+3. Intrepreting the Data.
+4. Further plans
+
+## Data downloading and loading into R
+** Data downloading and creating a Data Set involves steps as below **
+
+
+1. Check if directory already exists?
+2. Download data from URL given in course
+3. Check if zip file has already been downloaded in CapstoneprojectData directory
+4. Now check if the downloaded file is already unzipped or not
+5. Create file path files of /final/en_US folder. Note - we will be only working with en_us dataset.
+6. Look at individual files for blogs, news and Twitter
+7. Make file connections for all txt files
+
+```{r}
+if(!file.exists("./CapstoneprojectData")){
+  dir.create("./CapstoneprojectData")
+}
+```
+
+
+
+```{r,echo=TRUE}
+DataURL <- "https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+if(!file.exists("./CapstoneprojectData/Coursera-SwiftKey.zip")){
+  download.file(DataURL,destfile="./CapstoneprojectData/Coursera-SwiftKey.zip",mode = "wb")
+}
+```
+
+
+```{r}
+if(!file.exists("./CapstoneprojectData/final")){
+  unzip(zipfile="./CapstoneprojectData/Coursera-SwiftKey.zip",exdir="./CapstoneprojectData")
+}
+```
+
+
+```{r,echo=TRUE}
+path <- file.path("./CapstoneprojectData/final" , "en_US")
+files<-list.files(path, recursive=TRUE)
+```
+
+
+```{r,echo=TRUE}
+Blogfile <- paste(path,"en_US.blogs.txt",sep="/")
+Newsfile <- paste(path,"en_US.news.txt",sep="/")
+Twitterfile <- paste(path,"en_US.twitter.txt",sep="/")
+```
+
+
+```{r,echo=TRUE}
+BlogCon <- file(Blogfile)
+NewsCon <- file(Newsfile)
+TwitterCon <- file(Twitterfile)
+```
+
+## To calculate basic stastics about data we have collected and uploaded.
+In this step, we calculate information such as size of file, number of lines, no of charecters etc. and capture the summary in a Table. UTF-8 encoding, while reading files, for multiple language support, though this project only en_US is the lanuage suppoted.
+```{r}
+## Calculate the file sizes
+size_of_Blogs   <- file.size(Blogfile) / (2^20)
+size_of_News    <- file.size(Newsfile) / (2^20)
+size_of_Twitter <- file.size(Twitterfile) / (2^20)
+```
+
+
+```{r}
+## calculate the number of lines
+Bloglines <-readLines(BlogCon,encoding = "UTF-8")
+Newslines <- readLines(NewsCon,encoding = "UTF-8")
+Twitterlines <- readLines(TwitterCon,encoding = "UTF-8")
+```
+
+
+```{r}
+## Count Number  of Lines per file for blogs, news and Twitter
+num_blogs_lines   <- length(Bloglines)
+num_news_lines    <- length(Newslines)
+num_twitter_lines <- length(Twitterlines)
+num_total_lines   <- num_blogs_lines + num_news_lines + num_twitter_lines
+```
+
+
+```{r}
+### Count number of charecters by file for Blogs, news and Twitter
+blogs_nchar   <- nchar(Bloglines)
+news_nchar    <- nchar(Newslines)
+twitter_nchar <- nchar(Twitterlines)
+```
+
+
+```{r}
+### Total characters per file for Blogs, News and Twitter
+blogs_nchar_sum   <- sum(blogs_nchar)
+news_nchar_sum    <- sum(news_nchar)
+twitter_nchar_sum <- sum(twitter_nchar)
+```
+
+** Load Libraries for further computation **
+```{r,echo=TRUE}
+library(downloader)
+library(plyr);
+library(dplyr)
+library(knitr)
+require(stringi)
+library(data.table)
+library(ggthemes)
+library(wordcloud)
+library(doParallel)
+library(quanteda)
+library(ggplot2)
+library(ngram)
+```
+
+
+```{r}
+### Total words per file for Blogs, News and Twitter
+num_blogs_words <- wordcount(Bloglines, sep = " ")
+num_news_words  <- wordcount(Newslines,  sep = " ")
+num_twitter_words <- wordcount(Twitterlines, sep = " ")
+
+```
+
+## Create a summary of all counts collected so far in a data drame and add percentages
+```{r,echo=TRUE}
+repo_summary <- data.frame(f_names = c("blogs", "news", "twitter"),
+                           f_size  = c(size_of_Blogs, size_of_News, size_of_Twitter),
+                           f_lines = c(num_blogs_lines, num_news_lines, num_twitter_lines),
+                           n_char =  c(blogs_nchar_sum, news_nchar_sum, twitter_nchar_sum),
+                           n_words = c(num_blogs_words, num_news_words, num_twitter_words))
+
+repo_summary <- repo_summary %>% mutate(pct_n_char = round(n_char/sum(n_char), 2))
+repo_summary <- repo_summary %>% mutate(pct_lines = round(f_lines/sum(f_lines), 2))
+repo_summary <- repo_summary %>% mutate(pct_words = round(n_words/sum(n_words), 2))
+kable(repo_summary)
+```
+
+## Next step is to create training and testing Samples.
+Using training sample we will then create Corpus, Document feature Matrix, frequency tables of features and then plot to do exploratory Analysis. 
+
+```{r,echo=TRUE}
+### create Training and Testing Sample
+Train_sample_pct = 0.002
+Test_sample_pct = 0.002
+set.seed(1001)
+
+Train_blogs_size   <- num_blogs_lines * Train_sample_pct
+Train_news_size    <- num_news_lines * Train_sample_pct
+Train_twitter_size <- num_twitter_lines * Train_sample_pct
+
+Test_blogs_size   <- num_blogs_lines * Test_sample_pct
+Test_news_size    <- num_news_lines * Test_sample_pct
+Test_twitter_size <- num_twitter_lines * Test_sample_pct
+
+
+# Create  Random samples
+Train_blogs_sample   <- sample(Bloglines, Train_blogs_size)
+Train_news_sample    <- sample(Newslines, Train_news_size)
+Train_twitter_sample <- sample(Twitterlines, Train_twitter_size)
+
+Test_blogs_sample   <- sample(Bloglines, Test_blogs_size)
+Test_news_sample    <- sample(Newslines, Test_news_size)
+Test_twitter_sample <- sample(Twitterlines, Test_twitter_size)
+```
+
+
+```{r}
+## Clean the Training data at first level
+### Remove punctuations; keep apostophes; keep dash and underscore
+Train_twitter_sample <- gsub("[^[:alnum:]['-_]", " ", Train_twitter_sample)
+Train_twitter_sample <- gsub("[-.?!@:;)({}[]/#,^.]+", " ", Train_twitter_sample)
+Train_twitter_sample <- gsub("+([a-zA-z]+) +\1 +", " ",Train_twitter_sample)
+
+Train_blogs_sample <- gsub("[^[:alnum:]['-_]", " ", Train_blogs_sample)
+Train_blogs_sample <- gsub("[-.?!@:;)({}[]/#,^.]+", " ", Train_blogs_sample)
+Train_blogs_sample <- gsub("+([a-zA-z]+) +\1 +", " ",Train_blogs_sample)
+
+Train_news_sample <- gsub("[^[:alnum:]['-_]", " ", Train_news_sample)
+Train_news_sample <- gsub("[-.?!@;)({}[]:/#,^.]+", " ", Train_news_sample)
+Train_news_smaple <- gsub("+([a-zA-z]+) +\1 +", " ",Train_news_sample)
+```
+
+
+```{r}
+### Now clean the test data.
+Test_twitter_sample <- gsub("[-.?!@/#,^.]+", " ", gsub("(?!@/#[-.?!@/#])[[:punct:] ]+", " ", Test_twitter_sample, perl=T))
+Test_blogs_sample <- gsub("[-.?!@/#,^.]+", " ", gsub("(?!@/#[-.?!@/#])[[:punct:] ]+", " ", Test_blogs_sample, perl=T))
+Test_news_sample <- gsub("[-.?!@/#,^.]+", " ", gsub("(?!@/#[-.?!@/#])[[:punct:] ]+", " ", Test_news_sample, perl=T))
+```
+
+
+```{r}
+### Combine Twitter, blogs and News data into single repository for further analysis
+Train_repo_sample    <- c(Train_blogs_sample, Train_news_sample, Train_twitter_sample)
+Test_repo_sample    <- c(Test_blogs_sample, Test_news_sample, Test_twitter_sample)
+```
+
+```{r}
+### Save sample
+writeLines(Train_repo_sample, "./CapstoneprojectData/final/en_US/Train.en_US.repo_sample.txt")
+saveRDS(Train_repo_sample, file = "./CapstoneprojectData/final/en_US/Train_repo_sample.rds" )
+
+writeLines(Test_repo_sample, "./CapstoneprojectData/final/en_US/Test.en_US.repo_sample.txt")
+saveRDS(Test_repo_sample, file = "./CapstoneprojectData/final/en_US/Test_repo_sample.rds" )
+
+```
+
+Next Step is to create a Training Corpus and use this Corpus for Exploratory Analysis and further analyses
+We use Quanteda as a package since it is faster and cleaner. We have also used a parallelizing function which
+multiple cores to paralallelize task. Also, a profanily filter function is used to clean the corpus of Bad Words.
+
+
+```{r,echo=TRUE}
+
+clean_sample <- corpus(Train_repo_sample)
+#print(as.character(clean_sample[[1]]))
+#' Save clean corpus  
+saveRDS(clean_sample, file = "./CapstoneprojectData/final/en_US/clean_sample.rds" )
+
+doParallel::registerDoParallel(cores = 2)
+options(mc.cores = 2)
+```
+
+
+```{r}
+### Generic function to parallelize task
+parallelizeTask <- function(task, ...) {
+   #Calculate the number of cores
+  ncores <- detectCores() - 1
+   #Initiate cluster
+  cl <- makeCluster(ncores)
+  registerDoParallel(cl)
+  #print("Starting task")
+  r <- task(...)
+  #print("Task done")
+  stopCluster(cl)
+  r
+}
+```
+
+
+```{r}
+### Filter Profanity from Training Sample. 
+getProfanityWords <- function(corpus){
+ profanityFileName <- "./CapstoneprojectData/final/en_US/profanity-words.txt"
+ if (!file.exists(profanityFileName)) {
+    profanity.url <- "https://raw.githubusercontent.com/shutterstock/List-of-Dirty-Naughty-Obscene-and-Otherwise-Bad-Words/master/en"
+    download.file(profanity.url, destfile = profanityFileName, method = "curl")
+  }
+  if (sum(ls() == "profanity") < 1) {
+    profanity <- read.csv(profanityFileName, header = FALSE, stringsAsFactors = FALSE)
+    profanity <- profanity$V1
+    profanity <- profanity[1:length(profanity)-1]
+  }
+  profanity
+}
+```
+
+Break the Corpus and make sentences. The using these sentences, make N-grams ( tokens, 1, 2, 3, 4)
+```{r}
+makeSentences <- function(input) {
+  output <- quanteda::tokens(input, what = "word", remove_numbers = TRUE,
+                     remove_punct = TRUE, remove_separators = TRUE,remove_symbols=TRUE,
+                     remove_twitter = FALSE, remove_hyphens = TRUE,remove_url = TRUE,skip = 0L,concatenator = " ")
+  output <- tokens_remove(output, getProfanityWords())
+}
+
+# Make Tokens given vectors into N-gram
+makeTokens <- function(input, n = 1L) {
+  quanteda::tokens(input, what = "word", remove_numbers = TRUE,
+           remove_punct = TRUE, remove_separators = TRUE, remove_symbols = TRUE,
+           remove_twitter = TRUE, remove_hyphens = TRUE,remove_url = TRUE,concatenator = " ",
+           ngrams = n)
+}
+
+sentences <- parallelizeTask(makeSentences, clean_sample)
+
+ngram1 <- parallelizeTask(makeTokens, sentences, 1)
+ngram2 <- parallelizeTask(makeTokens, sentences, 2)
+ngram3 <- parallelizeTask(makeTokens, sentences, 3)
+ngram4 <- parallelizeTask(makeTokens, sentences, 4)
+```
+
+Create Document feature matrix for each N grams and remove single letter, two letters and three letter words
+```{r}
+dfm1 <- parallelizeTask(dfm, ngram1)
+dfm_select(dfm1, "\\b[a-zA-Z0-9]{1,3}\\b", selection = "remove", valuetype = "regex")
+dfm2 <- parallelizeTask(dfm, ngram2)
+dfm_select(dfm2, "\\b[a-zA-Z0-9]{1,3}\\b", selection = "remove", valuetype = "regex")
+dfm3 <- parallelizeTask(dfm, ngram3)
+dfm_select(dfm3, "\\b[a-zA-Z0-9]{1,3}\\b", selection = "remove", valuetype = "regex")
+dfm4 <- parallelizeTask(dfm, ngram4)
+dfm_select(dfm4, "\\b[a-zA-Z0-9]{1,3}\\b", selection = "remove", valuetype = "regex")
+
+```
+
+
+
+```{r}
+### Store DFM in Data table, with feature and Sum of count for each each feature in DFM. Store this as frequency data.
+dt1 <- data.table(ngram = dfm1@Dimnames$features, count = colSums(dfm1), key = "ngram")
+saveRDS(dt1, file="./CapstoneprojectData/final/en_US/wordsfreq.RData")
+dt2 <- data.table(ngram = dfm2@Dimnames$features, count = colSums(dfm2), key = "ngram")
+saveRDS(dt2, file="./CapstoneprojectData/final/en_US/bigramfreq.RData")
+dt3 <- data.table(ngram = dfm3@Dimnames$features, count = colSums(dfm3), key = "ngram")
+saveRDS(dt3, file="./CapstoneprojectData/final/en_US/trigramfreq.RData")
+dt4 <- data.table(ngram = dfm4@Dimnames$features, count = colSums(dfm4), key = "ngram")
+saveRDS(dt4, file="./CapstoneprojectData/final/en_US/quadgramfreq.RData")
+
+# Prepare n-gram frequencies order descending  and write to a file
+
+freq1 <- dt1[order(-dt1$count),]
+saveRDS(freq1, file = "./CapstoneprojectData/final/en_US/Wordsfreq.RData" )
+freq2 <- dt2[order(-dt2$count),]
+saveRDS(freq2, file = "./CapstoneprojectData/final/en_US/bigramfreq.RData" )
+freq3 <- dt3[order(-dt3$count),]
+saveRDS(freq3, file = "./CapstoneprojectData/final/en_US/trigramfreq.RData" )
+freq4 <- dt4[order(-dt4$count),]
+saveRDS(freq4, file = "./CapstoneprojectData/final/en_US/quadgramfreq.RData" )
+
+```
+
+## Plot the frequencies for each n-gram
+
+
+```{r}
+Unigram <- readRDS("./CapstoneprojectData/final/en_US/Wordsfreq.RData")
+g1 <- ggplot(data=Unigram[1:10,], aes(x = reorder(ngram, -count),y=count))
+g2 <- g1 + geom_bar(stat="identity") + coord_flip() + ggtitle("Frequent Unigrams")
+g3 <- g2 + geom_text(data = Unigram[1:10,], aes(x = Unigram[1:10]$ngram, y = Unigram[1:10]$count, label = Unigram[1:10]$count), hjust=-1, position = "identity")
+print(g3)
+
+bigram <- readRDS("./CapstoneprojectData/final/en_US/bigramfreq.RData")
+g1 <- ggplot(data=bigram[1:10,], aes(x = reorder(ngram, -count),y=count))
+g2 <- g1 + geom_bar(stat="identity") + coord_flip() + ggtitle("Frequent bigrams")
+g3 <- g2 + geom_text(data = bigram[1:10,], aes(x = bigram[1:10]$ngram, y = bigram[1:10]$count, label = bigram[1:10]$count), hjust=-1, position = "identity")
+print(g3)
+
+trigram <- readRDS("./CapstoneprojectData/final/en_US/trigramfreq.RData")
+g1 <- ggplot(data=trigram[1:10,], aes(x = reorder(ngram, -count),y=count))
+g2 <- g1 + geom_bar(stat="identity") + coord_flip() + ggtitle("Frequent trigrams")
+g3 <- g2 + geom_text(data = trigram[1:10,], aes(x = trigram[1:10]$ngram, y = trigram[1:10]$count, label = trigram[1:10]$count), hjust=-1, position = "identity")
+print(g3)
+
+quadgram <- readRDS("./CapstoneprojectData/final/en_US/quadgramfreq.RData")
+g1 <- ggplot(data=quadgram[1:10,], aes(x = reorder(ngram, -count),y=count))
+g2 <- g1 + geom_bar(stat="identity") + coord_flip() + ggtitle("Frequent Quadgrams")
+g3 <- g2 + geom_text(data = quadgram[1:10,], aes(x = quadgram[1:10]$ngram, y = quadgram[1:10]$count, label = quadgram[1:10]$count), hjust=-1, position = "identity")
+print(g3)
+
+
+
+#' Create ngram cloud
+wordcloud(Unigram$ngram, Unigram$count, max.words = 100,
+       colors = brewer.pal(6, 'Dark2'), random.color = FALSE,random.order = FALSE)  
+#dev.new(width=6, height=10)
+wordcloud(bigram$ngram, bigram$count, max.words =  100,
+     colors = brewer.pal(6, 'Dark2'), random.color = FALSE, random.order = FALSE)
+
+wordcloud(trigram$ngram, trigram$count, max.words = 100,
+       colors = brewer.pal(6, 'Dark2'), random.order = FALSE)  
+
+wordcloud(quadgram$ngram, quadgram$count, max.words = 100,
+      colors = brewer.pal(6, 'Dark2'), random.order = FALSE)
+
+
+# Close the connection handle when you are done
+close(BlogCon)
+close(TwitterCon)
+close(NewsCon)
+```
+
+## Data Interpretation.
+We took large input files, twitter(159 MB), Blog(200 MB) & News(196 MB), cleaned the input data  created a smaller training and test sample respectively. We summarized the stattistics of cleaned sample in a Table.We created a  Corpus out of training sample ( 4 MB). We cleaned the Corpus for proafnity words, punctuation,hyphens, twitter , URL etc. We takenzied the Corpus into words and used the words to create N-grams. We counted frequencies of Unigram, Bigram, Trigram and Quadgram. What we observed is Most often occuring Unigram as common english articles, preposition, stop word etc. This is true, because we DID NOT remove stopwords while tokenization, and that is because, we believe that stopwords are essential for meaningful higher Ngrams to be used later. Higher Ngrams are also usual suspects like "in the" , "for the" and more ..the. Trigrams seems to the thankful for "thanks for the", "a lot of". Quadgrams also has Highest number of "thanks for the follow". *Note this there is already a pattern between Trigram and Quadrram.* 
+
+## Next Steps
+Next step is to first create a simple Word prediction algorithim using the data set we have blogs, twittter and News. Chances are that such simple prediction algorithim will only predict Word from existing N-gram. Studying literature and other stuff in internet, for a totlly new word/sentence which is not in existing N-gram, we would have to use some somoothing algorithims such as Katz stupid backoff or Kneser Kney. Plan to use Kneser Kney. Once we have some discounted data set from these Algorithims, then use the same in Shiny UI server application. Alternative data source is Test Data set which we have created for Prediction.
+
